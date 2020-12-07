@@ -17,6 +17,7 @@ int main()
 		cout << "success to init" << endl;
 	}
 	SOCKET sockServer = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	cout << sockServer;
 	return 0;
 	//fread
 
