@@ -20,5 +20,5 @@ int main()
 	cout << sockServer;
 	return 0;
 	//fread
-
+	//怎么更改链接啊
 }
