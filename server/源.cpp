@@ -11,42 +11,87 @@ using namespace std;
 #define SIZE_OF_BIT 1	//识别编码占1字节
 #define TIME_OUT 500	//超时500ms
 #define max8bit 256		//使用8位校验和用256取模
-int bit = 0;			//01位
-int totalsize =  SEND_A_TIME + SIZE_OF_BIT + SIZE_OF_CHECK + 1;
-char recvbuff[ SEND_A_TIME + SIZE_OF_BIT + SIZE_OF_CHECK + 1];//读缓冲区（数据+标识+校验+0）在字节中的顺序就是里面计算的顺序
-char ack[5] = "ACK";
-char nak[5] = "NAK";
+int bit = 1;			//01位
+int totalsize =  255;
+char recvbuff[256];//读缓冲区（数据+标识+校验+0）在字节中的顺序就是里面计算的顺序
+char ack[6] = "ACK";
+char nak[6] = "NAK";
 using namespace std;
 
-void getbit(char* recv)
+int getbit(char* recv,int size)
 {
-	//cout << "getbit";
-	bit = recv[251];
-	recv[SEND_A_TIME] = 0;
+	return recv[size - 2];
 }
-int check(char* mas)
+
+int check(char* recvbuff, int size)
 {
-	//cout << "errorcheck";
 	unsigned short int h = 0;//差错校验值
-	unsigned int length = SEND_A_TIME + SIZE_OF_BIT + SIZE_OF_CHECK;
-	for (int i = 0; i < length+1; i++)
+	for (int i = 0; i < size - 1; i++)//取每8位校验
 	{
-		h = h + mas[i];
-		if (h / max8bit == 1)
+		h = h + (unsigned short int)recvbuff[i];
+		if (h >= max8bit)
 		{
 			h = h % max8bit;
 			h = h + 1;
-			h = h & 0x00FF;
 		}
 	}
-	if (h / max8bit == 1)//检验是否有进位
+	if ((char)h != recvbuff[size - 1])
+	{
+		cout << "!";
+		return 1;
+	}
+	return 0;
+}
+	/*long long int a=0;
+	for (int i = 0; i < size - 1; i++)
+	{
+		a = a + recvbuff[i];
+		cout << a << endl;
+	}
+	return 0;*/
+	/*unsigned short int h = 0;//差错校验值
+	for (int i = 0; i < size - 2; i++)//取每8位校验
+	{
+		h = h + (unsigned short int)recvbuff[i];
+		if (h >= max8bit)
+		{
+			h = h % max8bit;
+			h = h + 1;
+		}
+	}
+	h = ~h;//取反
+	h = h & 0x00FF;
+	h = h + (unsigned short int)1;//加1
+	while (h >= max8bit)//检验是否有进位
 	{
 		h = h % max8bit;
 		h = h + 1;
 	}
-	h = h & 0x00FF;
-	cout << h << endl;
-	recvbuff[252] = 0;
+	h = h & 0x00FF;//取最低位
+	if (h == (unsigned short int)recvbuff[size - 1])
+		cout << "ok";
+	else
+		cout << "?";
+	return 0;
+	/*signed short int h = 0;//差错校验值
+	unsigned int length;
+	for (int i = 0; i < size ; i++)//取每8位校验
+	{
+		h = h + (unsigned short int)recvbuff[i];
+		if (h >= max8bit)
+		{
+			h = h % max8bit;
+			h = h + 1;
+		}
+	}
+	while (h >= max8bit)//检验是否有进位
+	{
+		h = h % max8bit;
+		h = h + 1;
+	}
+	h = h & 0x00FF;//取最低位
+	h--;
+	cout << "h:" << h << endl;
 	if (h == 0)
 	{
 		return 0;
@@ -54,8 +99,35 @@ int check(char* mas)
 	}
 	else
 	{
+		cout << "r1";
+		return 1;
+	}*/
+
+void addbit(char* tosend, int size,int bit)
+{
+	tosend[size - 2] = bit;
+}
+int jiebao(char* recvbuff, int size,SOCKET sockServer, sockaddr_in ClintAddr)
+{
+	int b = getbit(recvbuff, size);
+	if ((check(recvbuff, size)==0) && bit!=b)
+	{
+		addbit(ack, 6, b);
+		cout << "sendack" << endl;
+		sendto(sockServer, ack, 6, 0, (SOCKADDR*)&ClintAddr, sizeof(SOCKADDR));
+		bit = b;
+		return 0;
+	}
+	else if (b != bit)
+	{
+		cout << "----nak" << endl;
+		addbit(nak, 6, b);
+		sendto(sockServer, nak, 6, 0, (SOCKADDR*)&ClintAddr, sizeof(SOCKADDR));
 		return 1;
 	}
+	else
+		return 1;
+	
 }
 int main() 
 {
@@ -64,7 +136,7 @@ int main()
 	{
 		ServerAddr.sin_family = AF_INET;
 		ServerAddr.sin_port = htons(4567);
-		ServerAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+		ServerAddr.sin_addr.S_un.S_addr = inet_addr("127.0.0.1");
 	}
 	if (WSAStartup(MAKEWORD(2, 2), &WSAData) != 0)//初始化套接字
 	{
@@ -77,6 +149,7 @@ int main()
 		cout << "success to init" << endl;
 	}
 	SOCKET sockServer = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);//建立一个socket
+
 	if (bind(sockServer, (sockaddr*)&ServerAddr, sizeof(ServerAddr)) == SOCKET_ERROR)//初始化套接字
 	{
 		cout << "fail to bind" << endl;
@@ -89,50 +162,54 @@ int main()
 	}
 	cout << "band socket as " << sockServer << endl;
 	int fromlen = sizeof(SOCKADDR);
+	//收链接信号
+	cout << "con" << endl << endl;
+	int che = 1;
+	while (che==1)
+	{
+		recvfrom(sockServer, recvbuff, totalsize, 0, (SOCKADDR*)&ClintAddr, &fromlen);
+		che = jiebao(recvbuff, 6, sockServer, ClintAddr);
+		string s = recvbuff;
+		cout << "sss:" << s << endl;
+	}
+	for (int i = 0; i < 6; i++)
+	{
+		cout << (signed short int)recvbuff[i] << endl;
+	}
+	cout << "ack,收下这个包" << endl;
+//发文件
+	cout << "准备接受文件" << endl;
+	ofstream fout("a.jpg", ios::binary);
+	cout << "准备接受文件" << endl;
 	while (1)
 	{
-		ofstream fout("a.jpg", ios::binary);
-		string s = "1";
-		do
+		recvfrom(sockServer, recvbuff, totalsize, 0, (SOCKADDR*)&ClintAddr, &fromlen);
+		//check(recvbuff, 255);
+		int b=jiebao(recvbuff, 255, sockServer, ClintAddr);
+		if (b != 0)
 		{
-			//cout << "0";
-			memset(recvbuff, 0, totalsize);
-			cout << "123";
-			recvfrom(sockServer, recvbuff, totalsize, 0, (SOCKADDR*)&ClintAddr, &fromlen);
-			cout << "123";
-			if (check(recvbuff))
-			{
-				cout << "error";
-				nak[4] = recvbuff[251];
-			}
-			
-			s = recvbuff;
-			if (s == "end")
-			{
-				break;
-			}
-			else if (s == "SYN")
-			{
-				memset(recvbuff, 0, totalsize);
-				ack[4] = bit;
-				sendto(sockServer, ack, 5, 0, (SOCKADDR*)&ClintAddr, sizeof(SOCKADDR));
-				cout << "sendsyn" << endl;
-			}
-			else 
-			{
-				fout.write(recvbuff, sizeof(char) * SEND_A_TIME);
-			}
-			
-			
-			
-		} while (!(s=="end"));
-		cout << "end";
-		fout.close();
-		cout << "over";
-		getchar();
-		
+			cout << "erroe" << endl;
+		}
+		string s = recvbuff;
+		if (s == "bye")
+			break;
+		else
+		{
+			fout.write(recvbuff, sizeof(char) * SEND_A_TIME);
+		}
+		cout << "2";
 	}
-	return 0;
+	
+	/*while (1)
+	{
+		ofstream fout("a.jpg", ios::binary);
+		recvfrom(sockServer, recvbuff, totalsize, 0, (SOCKADDR*)&ClintAddr, &fromlen);
+		//jiebao(recvbuff, 6);
+		cout << recvbuff << endl;
+		Sleep(500);
+		sendto(sockServer, ack, 5, 0, (SOCKADDR*)&ClintAddr, sizeof(SOCKADDR));
+	}
+	return 0;*/
 	//fread
 	//怎么更改链接啊
 }
